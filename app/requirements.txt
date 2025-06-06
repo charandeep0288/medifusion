@@ -1,0 +1,14 @@
+boto3
+botocore
+python-multipart
+fastapi
+uvicorn
+pydantic
+SQLAlchemy
+fuzzywuzzy
+python-Levenshtein
+pandas
+python-dotenv
+aiofiles
+httpx
+numpy
