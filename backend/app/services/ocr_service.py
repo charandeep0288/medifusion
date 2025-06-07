@@ -32,23 +32,21 @@ class TextractService:
             region_name=self.region_name
         )
 
-def extract_text_with_textract(self, s3_url: str, file_type: str) -> dict:
-    """Extract text using AWS Textract from an S3 file."""
+def extract_text_with_textract(self, file_path: str, file_type: str) -> dict:
+    """Extract text using AWS Textract and return plain text only."""
     try:
-        # Parse S3 URL to get bucket and key
-        parsed_url = urlparse(s3_url)
-        bucket = parsed_url.netloc
-        key = parsed_url.path.lstrip('/')
+        with open(file_path, 'rb') as document:
+            document_bytes = document.read()
 
         if file_type.lower() in ['image', 'pdf']:
             response = self.textract_client.detect_document_text(
-                Document={'S3Object': {'Bucket': bucket, 'Name': key}}
+                Document={'Bytes': document_bytes}
             )
         else:
             logger.warning(f"Unsupported file type: {file_type}")
             return {}
 
-        # Extract lines
+        # Extract text from Textract response
         extracted_lines = []
         for item in response.get('Blocks', []):
             if item['BlockType'] == 'LINE':
@@ -56,23 +54,15 @@ def extract_text_with_textract(self, s3_url: str, file_type: str) -> dict:
 
         full_text = "\n".join(extracted_lines)
 
-        # Save output locally (optional)
+        # Optionally save to file
         with open("textract_output.txt", "w", encoding="utf-8") as f:
             f.write(full_text)
 
-        logger.info(f"Extracted {len(extracted_lines)} lines from document in S3.")
-
-        # NER Analysis
-        try:
-            ner_result = analyze_medical_document(full_text, is_file=False)
-        except Exception as e:
-            logger.error(f"NER extraction failed: {str(e)}")
-            ner_result = {}
+        logger.info(f"Extracted {len(extracted_lines)} lines from document.")
 
         return {
             "text": full_text,
-            "structured_data": ner_result,
-            "source": s3_url
+            "source": file_path
         }
 
     except ClientError as e:
