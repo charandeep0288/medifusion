@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
-from app.services.ocr_service import extract_text_from_s3  # For PDFs
+from app.services.ocr_service import TextractService
 from app.services.extract_text_and_analyze_openai import extract_text_and_analyze_openai  # For images
 from app.services.ner_openai_service import analyze_medical_document  # For NER extraction
 import logging
@@ -65,7 +65,7 @@ async def ingest_documents(files: List[UploadFile] = File(...)):
 
             # Route based on file type
             if file_ext == ".pdf":
-                extracted_text = extract_text_from_s3(s3_path)
+                extracted_text = TextractService.extract_text_with_textract(s3_path)
             elif file_ext in [".jpg", ".jpeg", ".png"]:
                 extracted_text = extract_text_and_analyze_openai(s3_path)
             else:
