@@ -124,12 +124,13 @@ const Welcome = () => {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={handleGetStarted}
-            className="px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-300 flex items-center gap-2 mx-auto"
+            className="px-8 py-4 bg-gradient-to-r from-blue-500 to-purple-500 rounded-full text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-300 flex items-center gap-2 mx-auto group"
           >
-            <span>Let's Structure</span>
+            <span>Start Structuring Now</span>
             <motion.div
               animate={{ x: [0, 5, 0] }}
               transition={{ duration: 1, repeat: Infinity }}
+              className="group-hover:translate-x-1 transition-transform"
             >
               →
             </motion.div>
@@ -228,14 +229,6 @@ const Welcome = () => {
             <p className="text-gray-300 mb-6">
               Join thousands of healthcare providers who trust our platform
             </p>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleGetStarted}
-              className="px-8 py-4 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-300"
-            >
-              Start Structuring Now
-            </motion.button>
           </motion.div>
         </motion.div>
       </div>

@@ -58,7 +58,7 @@ const Home = () => {
     }));
 
     // Commented out API integration for now, using mock data instead
-    /*
+
     try {
       const controller = new AbortController();
 
@@ -158,12 +158,11 @@ const Home = () => {
         setError("Failed to process documents. Please try again.");
       }
     }
-    */
 
     // Using mock data instead of API response
     try {
       // Simulate a small delay to mimic API call
-      await new Promise((resolve) => setTimeout(resolve, 1000));
+      // await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Use the simulated patients data
       setPatients(simulatedPatients);
