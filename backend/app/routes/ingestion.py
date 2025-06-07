@@ -65,9 +65,11 @@ async def ingest_documents(files: List[UploadFile] = File(...)):
 
             # Route based on file type
             if file_ext == ".pdf":
-                extracted_text = TextractService.extract_text_with_textract(s3_path)
+                textract_service = TextractService()
+                result = textract_service.extract_text_with_textract(tmp_file_path, "pdf")
+                extracted_text = result.get("text", "")
             elif file_ext in [".jpg", ".jpeg", ".png"]:
-                extracted_text = extract_text_and_analyze_openai(s3_path)
+                extracted_text = extract_text_and_analyze_openai(tmp_file_path)
             else:
                 raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_ext}")
 
