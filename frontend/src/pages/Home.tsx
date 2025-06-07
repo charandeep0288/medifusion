@@ -1,15 +1,77 @@
 import { FaChartLine, FaFileUpload, FaUsers } from "react-icons/fa";
 import { useEffect, useState } from "react";
 
+import CheckpointLoaderExample from "../components/CheckLoadingExample";
 import PatientList from "../components/PatientList";
 import UploadSection from "../components/UploadSection";
-import { mockDocuments } from "../data/documentData";
 import { motion } from "framer-motion";
 import { usePatientStore } from "../store/patientStore";
 
+interface FollowUpCare {
+  Medications: string;
+  Diet: string;
+  Exercise: string;
+  Lifestyle: string;
+  FollowUp: string;
+}
+
+interface Patient {
+  id: string;
+  name: string;
+  dob: string;
+  mrn: string;
+  admissionDate: string;
+  dischargeDate: string;
+  reason: string;
+  procedures: string[];
+  medications: string[];
+  condition: string;
+  documentType: string;
+  followUpCare: FollowUpCare;
+}
+
+interface UploadResult {
+  filename: string;
+  s3_path: string;
+  extracted_text: string;
+  file_size: string;
+  file_type: string;
+  ocr_engine_used: string;
+  text_lines_count: number;
+  upload_location: string;
+}
+
+interface NERResponse {
+  structured_data: {
+    ExtractedData: {
+      PatientName: string;
+      DateOfBirth: string;
+      MRN: string;
+      DateOfAdmission?: string;
+      DateOfDischarge?: string;
+      ReasonForAdmission?: string;
+      ProceduresPerformed?: string[];
+      MedicationsPrescribed?: string[];
+      PatientConditionAtDischarge?: string;
+      DocumentType: string;
+      FollowUpCareInstructions?: {
+        Medications: string;
+        FollowUp: string;
+      };
+      Medication?: {
+        StartDate?: string;
+        StopDate?: string;
+        Instructions?: string;
+        Name?: string;
+      };
+      PrescriptionStatus?: string;
+    };
+  };
+}
+
 const Home = () => {
   const [files, setFiles] = useState<File[]>([]);
-  const [patients, setPatients] = useState<any[]>([]);
+  const [patients, setPatients] = useState<Patient[]>([]);
   const [error, setError] = useState<string | undefined>(undefined);
   const { setPatients: setStorePatients } = usePatientStore();
 
@@ -39,28 +101,17 @@ const Home = () => {
 
   const handleSimulateUpload = async () => {
     setError(undefined);
-    const count = files.length || 1;
-
-    // Transform mockDocuments into the format expected by the UI
-    const simulatedPatients = mockDocuments.slice(0, count).map((doc) => ({
-      id: doc.id,
-      name: doc.structured_data.ExtractedData.PatientName,
-      dob: doc.structured_data.ExtractedData.DateOfBirth,
-      mrn: doc.structured_data.ExtractedData.MRN,
-      admissionDate: doc.structured_data.ExtractedData.DateOfAdmission,
-      dischargeDate: doc.structured_data.ExtractedData.DateOfDischarge,
-      reason: doc.structured_data.ExtractedData.ReasonForAdmission,
-      procedures: doc.structured_data.ExtractedData.ProceduresPerformed,
-      medications: doc.structured_data.ExtractedData.MedicationsPrescribed,
-      condition: doc.structured_data.ExtractedData.PatientConditionAtDischarge,
-      documentType: doc.structured_data.DocumentType,
-      followUpCare: doc.structured_data.ExtractedData.FollowUpCareInstructions,
-    }));
-
-    // Commented out API integration for now, using mock data instead
 
     try {
-      const controller = new AbortController();
+      // Check file sizes before uploading
+      const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB in bytes
+      const largeFiles = files.filter((file) => file.size > MAX_FILE_SIZE);
+
+      if (largeFiles.length > 0) {
+        const fileNames = largeFiles.map((file) => file.name).join(", ");
+        setError(`The following files are too large (max 5MB): ${fileNames}`);
+        return;
+      }
 
       // Create FormData instance
       const formData = new FormData();
@@ -71,85 +122,152 @@ const Home = () => {
         formData.append("files", file);
       });
 
-      const response = await fetch("http://3.85.48.230/api/ingestion/upload", {
+      // Step 1: Upload files
+      const uploadResponse = await fetch("/api/ingestion/upload", {
         method: "POST",
         body: formData,
-        signal: controller.signal,
+        credentials: "include",
       });
 
-      console.log("Response:", response);
+      console.log("Upload Response Status:", uploadResponse.status);
+      console.log(
+        "Upload Response Headers:",
+        Object.fromEntries(uploadResponse.headers.entries())
+      );
 
-      if (response.status === 429) {
+      if (uploadResponse.status === 413) {
+        setError("File size too large. Please upload files smaller than 5MB.");
+        return;
+      }
+
+      if (uploadResponse.status === 429) {
         setError("Rate limited. Please try again later.");
         return;
       }
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      if (!uploadResponse.ok) {
+        throw new Error(`HTTP error! status: ${uploadResponse.status}`);
       }
 
-      // Check if response is JSON
-      const contentType = response.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
-        const data = await response.json();
-        console.log("API Response Data:", data);
+      const uploadData = await uploadResponse.json();
+      console.log(
+        "Upload API Response Data:",
+        JSON.stringify(uploadData, null, 2)
+      );
 
-        if (!data?.results) {
-          throw new Error("Invalid response format from server");
-        }
+      if (!uploadData?.results) {
+        throw new Error("Invalid response format from upload API");
+      }
 
-        // Transform API response to match our mock data structure
-        const transformedPatients = data.results.map((result: any) => {
-          const extractedData =
-            result.extracted_text.structured_data.ExtractedData;
+      // Step 2: Extract NER for each uploaded file
+      const nerPromises = uploadData.results.map(
+        async (result: UploadResult) => {
+          console.log("\nProcessing file:", result.filename);
+          console.log("Sending to NER API:", {
+            extracted_text: result.extracted_text,
+          });
 
-          // Create a base patient object
-          const patient = {
-            id: result.filename,
-            name: extractedData.PatientName,
-            dob: extractedData.DateOfBirth,
-            mrn: extractedData.MRN || "N/A",
-            admissionDate:
-              extractedData.DateOfAdmission ||
-              extractedData.Medication?.StartDate ||
-              "N/A",
-            dischargeDate:
-              extractedData.DateOfDischarge ||
-              extractedData.Medication?.StopDate ||
-              "N/A",
-            reason:
-              extractedData.ReasonForAdmission ||
-              extractedData.Medication?.Instructions ||
-              "N/A",
-            procedures: Array.isArray(extractedData.ProceduresPerformed)
-              ? extractedData.ProceduresPerformed
-              : [extractedData.Medication?.Name || "N/A"],
-            medications: Array.isArray(extractedData.MedicationsPrescribed)
-              ? extractedData.MedicationsPrescribed
-              : [extractedData.Medication?.Instructions || "N/A"],
-            condition:
-              extractedData.PatientConditionAtDischarge ||
-              extractedData.PrescriptionStatus ||
-              "N/A",
-            documentType: result.extracted_text.structured_data.DocumentType,
-            followUpCare: extractedData.FollowUpCareInstructions || {
-              Medications: extractedData.Medication?.Instructions || "N/A",
-              FollowUp: "Please follow up with your healthcare provider",
+          const nerResponse = await fetch("/api/ner/extract_ner", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
             },
+            body: JSON.stringify({
+              extracted_text: result.extracted_text,
+            }),
+            credentials: "include",
+          });
+
+          console.log("NER Response Status:", nerResponse.status);
+          console.log(
+            "NER Response Headers:",
+            Object.fromEntries(nerResponse.headers.entries())
+          );
+
+          if (!nerResponse.ok) {
+            throw new Error(
+              `NER extraction failed for file ${result.filename}`
+            );
+          }
+
+          const nerData = (await nerResponse.json()) as NERResponse;
+          console.log(
+            "NER API Response Data:",
+            JSON.stringify(nerData, null, 2)
+          );
+
+          return {
+            ...result,
+            extracted_text: nerData,
           };
+        }
+      );
 
-          return patient;
-        });
+      const processedResults = await Promise.all(nerPromises);
+      console.log(
+        "\nFinal Processed Results:",
+        JSON.stringify(processedResults, null, 2)
+      );
 
-        console.log("Transformed Patients:", transformedPatients);
-        setPatients(transformedPatients);
-        setStorePatients(transformedPatients);
-      } else {
-        // Handle text response
-        const text = await response.text();
-        console.log("Response Text:", text);
-        throw new Error("Unexpected response format from server");
-      }
+      // Transform API response to match our mock data structure
+      const transformedPatients = processedResults.map((result) => {
+        const extractedData = result.extracted_text.ExtractedData;
+        console.log(
+          "\nTransforming data for patient:",
+          extractedData.PatientName
+        );
+
+        // Create a base patient object
+        const patient = {
+          id: result.filename,
+          name: extractedData.PatientName,
+          dob: extractedData.DateOfBirth,
+          mrn: extractedData.MRN || "N/A",
+          admissionDate:
+            extractedData.DateOfAdmission ||
+            extractedData.Medication?.StartDate ||
+            "N/A",
+          dischargeDate:
+            extractedData.DateOfDischarge ||
+            extractedData.Medication?.StopDate ||
+            "N/A",
+          reason:
+            extractedData.ReasonForAdmission ||
+            extractedData.Medication?.Instructions ||
+            "N/A",
+          procedures: Array.isArray(extractedData.ProceduresPerformed)
+            ? extractedData.ProceduresPerformed
+            : [extractedData.Medication?.Name || "N/A"],
+          medications: Array.isArray(extractedData.MedicationsPrescribed)
+            ? extractedData.MedicationsPrescribed
+            : [extractedData.Medication?.Instructions || "N/A"],
+          condition:
+            extractedData.PatientConditionAtDischarge ||
+            extractedData.PrescriptionStatus ||
+            "N/A",
+          documentType: result.extracted_text.DocumentType,
+          followUpCare: {
+            Medications: extractedData.Medication?.Instructions || "N/A",
+            Diet: "Please follow a balanced diet as prescribed",
+            Exercise: "Regular exercise as tolerated",
+            Lifestyle: "Maintain healthy lifestyle habits",
+            FollowUp: "Please follow up with your healthcare provider",
+          },
+        };
+
+        console.log(
+          "Transformed patient data:",
+          JSON.stringify(patient, null, 2)
+        );
+        return patient;
+      });
+
+      console.log(
+        "\nFinal Transformed Patients:",
+        JSON.stringify(transformedPatients, null, 2)
+      );
+      setPatients(transformedPatients);
+      setStorePatients(transformedPatients);
     } catch (error: unknown) {
       console.error("Upload failed:", error);
       if (error instanceof Error) {
@@ -157,19 +275,6 @@ const Home = () => {
       } else {
         setError("Failed to process documents. Please try again.");
       }
-    }
-
-    // Using mock data instead of API response
-    try {
-      // Simulate a small delay to mimic API call
-      // await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Use the simulated patients data
-      setPatients(simulatedPatients);
-      setStorePatients(simulatedPatients);
-    } catch (error) {
-      console.error("Mock data processing failed:", error);
-      setError("Failed to process mock data. Please try again.");
     }
   };
 
@@ -243,7 +348,8 @@ const Home = () => {
           </div>
         </motion.div>
 
-        {/* Main Content */}
+        <CheckpointLoaderExample />
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <motion.div
             initial={{ opacity: 0, x: -20 }}

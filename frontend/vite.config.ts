@@ -9,5 +9,12 @@ export default defineConfig({
     watch: {
       usePolling: true, // forces watch to work even if OS file events are broken
     },
+    proxy: {
+      "/api": {
+        target: "http://184.73.46.117",
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
 });

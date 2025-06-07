@@ -1,4 +1,4 @@
-import { FaCloudUploadAlt, FaEye, FaFile, FaSpinner } from "react-icons/fa";
+import { FaCloudUploadAlt, FaEye, FaSpinner } from "react-icons/fa";
 
 import { useState } from "react";
 
@@ -17,6 +17,14 @@ const UploadSection = ({
   const [isDragging, setIsDragging] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  };
+
   const handleFileChange = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -26,6 +34,18 @@ const UploadSection = ({
     setIsProcessing(true);
     try {
       const fileArray = Array.from(selectedFiles);
+      // Check file sizes
+      const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+      const largeFiles = fileArray.filter((file) => file.size > MAX_FILE_SIZE);
+
+      if (largeFiles.length > 0) {
+        const fileNames = largeFiles
+          .map((file) => `${file.name} (${formatFileSize(file.size)})`)
+          .join(", ");
+        alert(`The following files are too large (max 5MB): ${fileNames}`);
+        return;
+      }
+
       setFiles(fileArray);
     } catch (error) {
       console.error("Error processing files:", error);
@@ -53,6 +73,20 @@ const UploadSection = ({
 
     setIsProcessing(true);
     try {
+      // Check file sizes
+      const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+      const largeFiles = droppedFiles.filter(
+        (file) => file.size > MAX_FILE_SIZE
+      );
+
+      if (largeFiles.length > 0) {
+        const fileNames = largeFiles
+          .map((file) => `${file.name} (${formatFileSize(file.size)})`)
+          .join(", ");
+        alert(`The following files are too large (max 5MB): ${fileNames}`);
+        return;
+      }
+
       setFiles(droppedFiles);
     } catch (error) {
       console.error("Error processing dropped files:", error);
@@ -81,6 +115,9 @@ const UploadSection = ({
         </h2>
         <p className="text-gray-500 text-sm mt-1">
           Upload your documents to extract patient information
+        </p>
+        <p className="text-gray-500 text-sm mt-1">
+          Maximum file size: 5MB per file
         </p>
       </div>
 
@@ -147,7 +184,7 @@ const UploadSection = ({
                       {file.name}
                     </span>
                     <span className="text-xs text-gray-500">
-                      Path: {file.webkitRelativePath || file.name}
+                      {formatFileSize(file.size)}
                     </span>
                   </div>
                 </div>
