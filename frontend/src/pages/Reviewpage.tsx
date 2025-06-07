@@ -48,7 +48,7 @@ const ReviewPage = () => {
     // Update the patient in the store
     updateAIResults(updatedPatient);
     // Navigate back to AI Results
-    navigate("/ai-results");
+    // navigate("/ai-results");
   };
 
   const handleReject = () => {
