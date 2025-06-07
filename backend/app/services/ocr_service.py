@@ -32,42 +32,42 @@ class TextractService:
             region_name=self.region_name
         )
 
-def extract_text_with_textract(self, file_path: str, file_type: str) -> dict:
-    """Extract text using AWS Textract and return plain text only."""
-    try:
-        with open(file_path, 'rb') as document:
-            document_bytes = document.read()
+    def extract_text_with_textract(self, file_path: str, file_type: str) -> dict:
+        """Extract text using AWS Textract and return plain text only."""
+        try:
+            with open(file_path, 'rb') as document:
+                document_bytes = document.read()
 
-        if file_type.lower() in ['image', 'pdf']:
-            response = self.textract_client.detect_document_text(
-                Document={'Bytes': document_bytes}
-            )
-        else:
-            logger.warning(f"Unsupported file type: {file_type}")
+            if file_type.lower() in ['image', 'pdf']:
+                response = self.textract_client.detect_document_text(
+                    Document={'Bytes': document_bytes}
+                )
+            else:
+                logger.warning(f"Unsupported file type: {file_type}")
+                return {}
+
+            # Extract text from Textract response
+            extracted_lines = []
+            for item in response.get('Blocks', []):
+                if item['BlockType'] == 'LINE':
+                    extracted_lines.append(item['Text'])
+
+            full_text = "\n".join(extracted_lines)
+
+            # Optionally save to file
+            with open("textract_output.txt", "w", encoding="utf-8") as f:
+                f.write(full_text)
+
+            logger.info(f"Extracted {len(extracted_lines)} lines from document.")
+
+            return {
+                "text": full_text,
+                "source": file_path
+            }
+
+        except ClientError as e:
+            logger.error(f"AWS Textract error: {e}")
             return {}
-
-        # Extract text from Textract response
-        extracted_lines = []
-        for item in response.get('Blocks', []):
-            if item['BlockType'] == 'LINE':
-                extracted_lines.append(item['Text'])
-
-        full_text = "\n".join(extracted_lines)
-
-        # Optionally save to file
-        with open("textract_output.txt", "w", encoding="utf-8") as f:
-            f.write(full_text)
-
-        logger.info(f"Extracted {len(extracted_lines)} lines from document.")
-
-        return {
-            "text": full_text,
-            "source": file_path
-        }
-
-    except ClientError as e:
-        logger.error(f"AWS Textract error: {e}")
-        return {}
-    except Exception as e:
-        logger.error(f"Textract extraction failed: {e}")
-        return {}
+        except Exception as e:
+            logger.error(f"Textract extraction failed: {e}")
+            return {}
