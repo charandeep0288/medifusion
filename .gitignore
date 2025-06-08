@@ -116,7 +116,6 @@ cython_debug/
 *.env
 myenv/
 secrets.json
-data/
 # OS files
 .DS_Store
 Thumbs.db
