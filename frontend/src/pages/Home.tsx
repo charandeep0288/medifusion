@@ -69,11 +69,24 @@ interface NERResponse {
   };
 }
 
+type CheckpointStatus = "pending" | "loading" | "completed";
+
+interface CheckpointState {
+  uploaded: CheckpointStatus;
+  ocr: CheckpointStatus;
+  ner: CheckpointStatus;
+}
+
 const Home = () => {
   const [files, setFiles] = useState<File[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [error, setError] = useState<string | undefined>(undefined);
-  const { setPatients: setStorePatients } = usePatientStore();
+  const [checkpointState, setCheckpointState] = useState<CheckpointState>({
+    uploaded: "pending",
+    ocr: "pending",
+    ner: "pending",
+  });
+  const { setPatients: setStorePatients, setNERResults } = usePatientStore();
 
   // Initialize patients from store if available
   useEffect(() => {
@@ -99,8 +112,27 @@ const Home = () => {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, []);
 
+  const handleFileSelect = () => {
+    setCheckpointState((prev) => ({
+      ...prev,
+      uploaded: "loading",
+    }));
+  };
+
+  const handleFilesSelected = () => {
+    setCheckpointState((prev) => ({
+      ...prev,
+      uploaded: "completed",
+    }));
+  };
+
   const handleSimulateUpload = async () => {
     setError(undefined);
+
+    setCheckpointState((prev) => ({
+      ...prev,
+      ocr: "loading",
+    }));
 
     try {
       // Check file sizes before uploading
@@ -159,6 +191,13 @@ const Home = () => {
         throw new Error("Invalid response format from upload API");
       }
 
+      // Mark OCR as completed and start NER
+      setCheckpointState((prev) => ({
+        ...prev,
+        ocr: "completed",
+        ner: "loading",
+      }));
+
       // Step 2: Extract NER for each uploaded file
       const nerPromises = uploadData.results.map(
         async (result: UploadResult) => {
@@ -209,49 +248,67 @@ const Home = () => {
         JSON.stringify(processedResults, null, 2)
       );
 
+      // Mark NER as completed
+      setCheckpointState((prev) => ({
+        ...prev,
+        ner: "completed",
+      }));
+
+      console.log("processedResults", processedResults);
+
       // Transform API response to match our mock data structure
       const transformedPatients = processedResults.map((result) => {
-        const extractedData = result.extracted_text.ExtractedData;
-        console.log(
-          "\nTransforming data for patient:",
-          extractedData.PatientName
-        );
+        const structuredData = result.extracted_text?.structured_data;
+        console.log("result", result);
+        const extractedData = structuredData?.ExtractedData;
+        const followUp = extractedData?.FollowUpCareInstructions || {};
 
-        // Create a base patient object
+        if (!extractedData) {
+          console.error("ExtractedData is undefined for result:", result);
+          return {
+            id: result.filename,
+            name: "Unknown",
+            dob: "N/A",
+            mrn: "N/A",
+            admissionDate: "N/A",
+            dischargeDate: "N/A",
+            reason: "N/A",
+            procedures: [],
+            medications: [],
+            condition: "N/A",
+            documentType: structuredData?.DocumentType || "Unknown",
+            followUpCare: {
+              Medications: "N/A",
+              Diet: "N/A",
+              Exercise: "N/A",
+              Lifestyle: "N/A",
+              FollowUp: "N/A",
+            },
+          };
+        }
+
         const patient = {
           id: result.filename,
-          name: extractedData.PatientName,
-          dob: extractedData.DateOfBirth,
+          name: extractedData.PatientName || "Unknown",
+          dob: extractedData.DateOfBirth || "N/A",
           mrn: extractedData.MRN || "N/A",
-          admissionDate:
-            extractedData.DateOfAdmission ||
-            extractedData.Medication?.StartDate ||
-            "N/A",
-          dischargeDate:
-            extractedData.DateOfDischarge ||
-            extractedData.Medication?.StopDate ||
-            "N/A",
-          reason:
-            extractedData.ReasonForAdmission ||
-            extractedData.Medication?.Instructions ||
-            "N/A",
+          admissionDate: extractedData.DateOfAdmission || "N/A",
+          dischargeDate: extractedData.DateOfDischarge || "N/A",
+          reason: extractedData.ReasonForAdmission || "N/A",
           procedures: Array.isArray(extractedData.ProceduresPerformed)
             ? extractedData.ProceduresPerformed
-            : [extractedData.Medication?.Name || "N/A"],
+            : [],
           medications: Array.isArray(extractedData.MedicationsPrescribed)
             ? extractedData.MedicationsPrescribed
-            : [extractedData.Medication?.Instructions || "N/A"],
-          condition:
-            extractedData.PatientConditionAtDischarge ||
-            extractedData.PrescriptionStatus ||
-            "N/A",
-          documentType: result.extracted_text.DocumentType,
+            : [],
+          condition: extractedData.PatientConditionAtDischarge || "N/A",
+          documentType: structuredData?.DocumentType || "Unknown",
           followUpCare: {
-            Medications: extractedData.Medication?.Instructions || "N/A",
-            Diet: "Please follow a balanced diet as prescribed",
-            Exercise: "Regular exercise as tolerated",
-            Lifestyle: "Maintain healthy lifestyle habits",
-            FollowUp: "Please follow up with your healthcare provider",
+            Medications: followUp.Medications || "N/A",
+            Diet: followUp.Diet || "N/A",
+            Exercise: followUp.Exercise || "N/A",
+            Lifestyle: followUp.Lifestyle || "N/A",
+            FollowUp: followUp.FollowUp || "N/A",
           },
         };
 
@@ -268,6 +325,7 @@ const Home = () => {
       );
       setPatients(transformedPatients);
       setStorePatients(transformedPatients);
+      setNERResults(processedResults);
     } catch (error: unknown) {
       console.error("Upload failed:", error);
       if (error instanceof Error) {
@@ -275,6 +333,12 @@ const Home = () => {
       } else {
         setError("Failed to process documents. Please try again.");
       }
+      // Reset checkpoint states on error
+      setCheckpointState({
+        uploaded: "pending",
+        ocr: "pending",
+        ner: "pending",
+      });
     }
   };
 
@@ -348,7 +412,7 @@ const Home = () => {
           </div>
         </motion.div>
 
-        <CheckpointLoaderExample />
+        <CheckpointLoaderExample checkpointState={checkpointState} />
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <motion.div
@@ -360,7 +424,13 @@ const Home = () => {
             <UploadSection
               onSimulateUpload={handleSimulateUpload}
               files={files}
-              setFiles={setFiles}
+              setFiles={(newFiles) => {
+                setFiles(newFiles);
+                if (newFiles.length > 0) {
+                  handleFilesSelected();
+                }
+              }}
+              onFileSelect={handleFileSelect}
             />
           </motion.div>
 

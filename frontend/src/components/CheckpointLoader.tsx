@@ -53,62 +53,31 @@ interface CheckpointLoaderProps {
   checkpoints: Checkpoint[];
   autoProgress?: boolean;
   onComplete?: () => void;
+  checkpointStates: ("pending" | "loading" | "completed")[];
 }
 
 type CheckpointStatus = "pending" | "loading" | "completed";
 
 const CheckpointLoader: React.FC<CheckpointLoaderProps> = ({
   checkpoints,
-  autoProgress = true,
-  onComplete,
+  checkpointStates,
 }) => {
-  const [statuses, setStatuses] = useState<CheckpointStatus[]>(
-    checkpoints.map(() => "pending")
-  );
+  const [statuses, setStatuses] =
+    useState<CheckpointStatus[]>(checkpointStates);
 
   useEffect(() => {
-    if (!autoProgress) return;
-
-    const progressInterval = setInterval(() => {
-      setStatuses((prev) => {
-        const newStatuses = [...prev];
-
-        // Find the first loading checkpoint
-        const loadingIndex = newStatuses.findIndex(
-          (status) => status === "loading"
-        );
-
-        if (loadingIndex !== -1) {
-          // Complete the loading checkpoint
-          newStatuses[loadingIndex] = "completed";
-
-          // Instantly start the next checkpoint if it exists
-          if (
-            loadingIndex + 1 < newStatuses.length &&
-            newStatuses[loadingIndex + 1] === "pending"
-          ) {
-            newStatuses[loadingIndex + 1] = "loading";
-          }
-        } else {
-          // No loading checkpoint, find the first pending one
-          const pendingIndex = newStatuses.findIndex(
-            (status) => status === "pending"
-          );
-          if (pendingIndex !== -1) {
-            newStatuses[pendingIndex] = "loading";
-          } else {
-            // All completed
-            clearInterval(progressInterval);
-            onComplete?.();
-          }
+    setStatuses((prevStatuses) => {
+      // Create new array with updated states while preserving completed states
+      return checkpointStates.map((newState, index) => {
+        // If the previous state was completed, keep it completed
+        if (prevStatuses[index] === "completed") {
+          return "completed";
         }
-
-        return newStatuses;
+        // Otherwise use the new state
+        return newState;
       });
-    }, 2000);
-
-    return () => clearInterval(progressInterval);
-  }, [autoProgress, onComplete]);
+    });
+  }, [checkpointStates]);
 
   const getProgressWidth = () => {
     const completedCount = statuses.filter(

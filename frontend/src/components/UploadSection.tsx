@@ -6,12 +6,14 @@ interface UploadSectionProps {
   onSimulateUpload: () => void;
   files: File[];
   setFiles: (files: File[]) => void;
+  onFileSelect: () => void;
 }
 
 const UploadSection = ({
   onSimulateUpload,
   files,
   setFiles,
+  onFileSelect,
 }: UploadSectionProps) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -29,9 +31,11 @@ const UploadSection = ({
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     const selectedFiles = event.target.files;
-    if (!selectedFiles) return;
+    if (!selectedFiles || selectedFiles.length === 0) return;
 
     setIsProcessing(true);
+    onFileSelect();
+
     try {
       const fileArray = Array.from(selectedFiles);
       // Check file sizes
@@ -72,6 +76,8 @@ const UploadSection = ({
     if (droppedFiles.length === 0) return;
 
     setIsProcessing(true);
+    onFileSelect();
+
     try {
       // Check file sizes
       const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB

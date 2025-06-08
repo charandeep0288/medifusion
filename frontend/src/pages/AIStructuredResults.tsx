@@ -15,7 +15,7 @@ import { usePatientStore } from "../store/patientStore";
 const AIStructuredResults = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<"matched" | "review">("matched");
-  const { aiResults, setAIResults } = usePatientStore();
+  const { aiResults, setAIResults, nerResults } = usePatientStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,6 +32,112 @@ const AIStructuredResults = () => {
 
       setAIResults(matched, review);
     }
+  }, []);
+
+  useEffect(() => {
+    // Call the fuzzy match API on mount
+    const fetchAndMatch = async () => {
+      console.log(
+        "AIStructuredResults: componentDidMount - fetching and matching"
+      );
+      setLoading(true);
+      setError(null);
+      try {
+        // Use nerResults from global store
+        console.log("NER nerResults loaded", nerResults);
+        if (!Array.isArray(nerResults) || nerResults.length === 0)
+          throw new Error("No NER data available");
+
+        const patients = nerResults.map((p) => {
+          const extractedText = (p as Record<string, unknown>)
+            .extracted_text as Record<string, unknown> | undefined;
+          const structuredDataRaw = extractedText?.structured_data;
+          const structuredArr: unknown[] = Array.isArray(structuredDataRaw)
+            ? structuredDataRaw
+            : [structuredDataRaw];
+          const s = (structuredArr[0] || {}) as Record<string, unknown>;
+          const e = (s.ExtractedData || {}) as Record<string, unknown>;
+          const lab = (e.LaboratoryResults || {}) as Record<string, unknown>;
+          const nullify = (val: unknown) =>
+            !val || val === "N/A" ? null : val;
+          const toISO = (val: unknown) => {
+            if (!val || val === "N/A" || typeof val !== "string") return null;
+            const d = new Date(val);
+            if (isNaN(d.getTime())) return null;
+            return d.toISOString().slice(0, 10);
+          };
+          let medical_conditions: string[] = [];
+          if (typeof e.Diagnosis === "string" && e.Diagnosis !== "N/A")
+            medical_conditions = [e.Diagnosis];
+          else if (
+            Array.isArray(e.MedicalConditions) &&
+            e.MedicalConditions[0] !== "N/A"
+          )
+            medical_conditions = e.MedicalConditions as string[];
+          return {
+            name: nullify(e.PatientName) as string | null,
+            dob: nullify(e.DateOfBirth) as string | null,
+            ssn: null,
+            insurance_number: null,
+            medical_conditions,
+            address: nullify(e.Address) as string | null,
+            phone: nullify(e.ContactNumber) as string | null,
+            email: nullify(e.Email) as string | null,
+            gender: nullify(e.Gender) as string | null,
+            hospital_name:
+              (nullify(e.Department) as string | null) ||
+              (nullify(e.HospitalName) as string | null),
+            visit_date: toISO(e.VisitDate),
+            report_date: toISO(lab.TestDate),
+            doctor_name: nullify(e.DoctorName) as string | null,
+            test_name: nullify(lab.TestName) as string | null,
+            test_result: Array.isArray(lab.Results)
+              ? (nullify(lab.Results[0]) as string | null)
+              : null,
+          };
+        });
+        console.log("Prepared patients for fuzzy match", patients);
+        console.log("About to call /api/matching/fuzzy-match");
+        console.log(
+          "Fuzzy Match API Request Body:",
+          JSON.stringify({ patients }, null, 2)
+        );
+        const res = await fetch("/api/matching/fuzzy-match", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ patients }),
+          credentials: "include",
+        });
+        console.log("API call returned, status:", res.status);
+        if (!res.ok) throw new Error("Fuzzy match API failed");
+        const data = await res.json();
+        console.log("Fuzzy Match API Response:", JSON.stringify(data, null, 2));
+        const { matched_patients } = data.summary;
+        const matched = matched_patients.filter(
+          (p: { review_status: string }) => p.review_status === "Confirmed"
+        );
+        const review = matched_patients.filter(
+          (p: { review_status: string }) => p.review_status !== "Confirmed"
+        );
+        setAIResults(matched, review);
+      } catch (err) {
+        console.error("Error processing AI structure, using mock data:", err);
+        const { matched_patients } = mockAIData.summary;
+        const matched = matched_patients.filter(
+          (p) => p.review_status === "Confirmed"
+        );
+        const review = matched_patients.filter(
+          (p) => p.review_status !== "Confirmed"
+        );
+        setAIResults(matched, review);
+        setError("Failed to process AI structure. Showing mock data.");
+      } finally {
+        setLoading(false);
+        console.log("AIStructuredResults: fetchAndMatch finished");
+      }
+    };
+    fetchAndMatch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleBack = () => {
@@ -74,30 +180,8 @@ const AIStructuredResults = () => {
     });
   };
 
-  const handleAIStructure = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      // Simulate API delay
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-
-      // Use mock data instead of API call
-      const { matched_patients } = mockAIData.summary;
-      const matched = matched_patients.filter(
-        (p) => p.review_status === "Confirmed"
-      );
-      const review = matched_patients.filter(
-        (p) => p.review_status !== "Confirmed"
-      );
-
-      setAIResults(matched, review);
-    } catch (err) {
-      console.error("Error processing AI structure:", err);
-      setError("Failed to process AI structure. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _suppressLoadingWarning = loading;
 
   const renderPatientCard = (patient: MatchedResult) => (
     <div className="bg-white rounded-xl shadow-lg p-6 mb-4 border border-gray-200 hover:shadow-xl transition-shadow duration-300">
@@ -239,8 +323,16 @@ const AIStructuredResults = () => {
 
           <div className="space-y-4">
             {activeTab === "matched"
-              ? aiResults.matched.map((patient) => renderPatientCard(patient))
-              : aiResults.review.map((patient) => renderPatientCard(patient))}
+              ? aiResults.matched.map((patient) => (
+                  <div key={patient.matched_with.id || patient.incoming.name}>
+                    {renderPatientCard(patient)}
+                  </div>
+                ))
+              : aiResults.review.map((patient) => (
+                  <div key={patient.matched_with.id || patient.incoming.name}>
+                    {renderPatientCard(patient)}
+                  </div>
+                ))}
           </div>
         </div>
       </div>
